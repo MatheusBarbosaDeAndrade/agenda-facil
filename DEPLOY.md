@@ -26,6 +26,15 @@ O projeto já está configurado para a Vercel (`vercel.json`):
 3. Conecte o banco aos ambientes **Production** e **Preview**. A integração cria as variáveis `DATABASE_URL` (com pooler, usada pela aplicação) e `DATABASE_URL_UNPOOLED` (conexão direta, usada pelas migrações) automaticamente.
 4. Recomendado: ative a opção de **criar um branch do banco para cada Preview**. Assim os deploys de teste nunca mexem nos dados reais.
 
+**Plano gratuito do Neon:** dá conta de um TCC (0,5 GB por projeto). O banco "dorme" depois de 5 minutos sem uso, e o primeiro acesso depois disso demora cerca de 1 segundo a mais. Abra o site alguns minutos antes da apresentação para acordar o banco.
+
+**Banco criado direto em neon.tech, sem a integração:** em _Connect_, copie as duas strings e cadastre-as você mesmo na Vercel:
+
+- `DATABASE_URL`: a conexão **com** _Connection pooling_ (host termina em `-pooler`), usada pela aplicação;
+- `DATABASE_URL_UNPOOLED`: a conexão **sem** pooling, usada pelas migrações.
+
+Pode colar as URLs como o Neon mostra (`?sslmode=require&channel_binding=require`). A aplicação trata esses parâmetros e sempre verifica o certificado SSL.
+
 ### 3. Variáveis de ambiente
 
 Gere os segredos no seu computador:
@@ -41,7 +50,7 @@ Em **Settings → Environment Variables**, cadastre:
 | `DATA_ENCRYPTION_KEY`                                                                | Production, Preview | gerada acima — **a mesma em todos** se os previews usarem o mesmo banco        |
 | `CRON_SECRET`                                                                        | Production          | gerado acima                                                                   |
 | `APP_URL`                                                                            | **só Production**   | `https://seudominio.com.br` (os previews usam a URL da Vercel automaticamente) |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`                 | Production, Preview | dados do seu provedor de e-mail                                                |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`                 | **só Production**   | dados do seu provedor de e-mail (passo 5)                                      |
 | `LEGAL_NAME`, `LEGAL_DOCUMENT`, `LEGAL_ADDRESS`, `PRIVACY_CONTACT_EMAIL`, `DPO_NAME` | Production, Preview | dados do controlador (LGPD)                                                    |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                                           | Production          | opcional — login com Google                                                    |
 
@@ -61,12 +70,44 @@ Depois de cadastrar, faça um novo deploy (**Deployments → ⋯ → Redeploy**)
 
 Use **os valores exibidos no painel da Vercel**, que podem variar. Alternativamente, aponte os _nameservers_ do domínio para a Vercel. 3. O HTTPS é emitido automaticamente. Confirme que `APP_URL` usa exatamente esse domínio e teste `https://seudominio.com.br/api/v1/status`.
 
+`APP_URL` é usada nos links dos e-mails. Se ela estiver errada, o link de confirmação aponta para o endereço errado.
+
+### 5. E-mails reais (só em produção)
+
+| Onde roda                | O que acontece com os e-mails                                          |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `npm run dev` (seu PC)   | ficam no Mailpit, em <http://localhost:8025>; nada sai para a internet |
+| Preview da Vercel        | **nunca são enviados**; o conteúdo com o link aparece em _Logs_        |
+| Production (seu domínio) | enviados de verdade pelo SMTP configurado                              |
+
+Recomendado: **Resend** (grátis, 3.000 e-mails/mês e 100/dia). Assim o remetente fica no seu domínio (`nao-responda@seudominio.com.br`).
+
+1. Crie a conta em <https://resend.com> → **Domains → Add Domain** → `seudominio.com.br`, região **São Paulo (sa-east-1)**.
+2. No painel DNS do domínio (Registro.br ou o painel da Vercel, se os _nameservers_ estiverem nela), crie **exatamente** os registros que o Resend mostrar: um `MX` e um `TXT` (SPF) em `send`, e um `TXT` (DKIM) em `resend._domainkey`. Clique em **Verify** e aguarde o status _Verified_.
+3. Recomendado contra spam: crie também um `TXT` em `_dmarc` com o valor `v=DMARC1; p=none;`.
+4. **API Keys → Create API Key** (permissão _Sending access_).
+5. Na Vercel, ambiente **Production** apenas:
+
+   ```
+   SMTP_HOST=smtp.resend.com
+   SMTP_PORT=465
+   SMTP_USER=resend
+   SMTP_PASSWORD=<a API key, começa com re_>
+   EMAIL_FROM=AgendaFácil <nao-responda@seudominio.com.br>
+   ```
+
+6. **Redeploy** e teste: crie uma conta com um e-mail seu e confira se o link de confirmação chega e abre `https://seudominio.com.br/verificar-email?...`.
+
+Alternativa: **Brevo** (300/dia). Use `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, e login e chave em _SMTP & API_. Autentique o domínio em _Senders, Domains_.
+
+Se não chegar, veja em **Vercel → Logs** a linha `[email] falha no envio: ...`, que mostra o erro do provedor, e confira a pasta de spam.
+
 ### Observações
 
 - **Backups:** o Neon mantém histórico para restauração (_point-in-time restore_), com período que depende do plano. Para uma cópia própria: `pg_dump "$DATABASE_URL_UNPOOLED" -Fc -f backup.dump`.
 - **Cron no plano Hobby:** roda uma vez por dia, o que basta para a rotina de retenção.
 - **Proteção de previews:** mantenha ativada a _Deployment Protection_ (padrão), para que só você acesse as URLs de preview.
-- **Primeiro acesso:** o banco de produção começa vazio. **Não** rode `npm run dev:seed` contra ele.
+- **Primeiro acesso:** o banco de produção começa vazio. **Não** rode `npm run dev:seed` contra ele. Crie as contas pelo próprio site; o e-mail de confirmação chega de verdade.
 
 ---
 
@@ -175,9 +216,9 @@ O comando de inicialização da imagem já aplica as migrações. A rotina de re
 
 ## Configurações opcionais
 
-### E-mail (recuperação de senha)
+### E-mail (confirmação de cadastro e recuperação de senha)
 
-Qualquer SMTP funciona (Brevo, Amazon SES, Resend, Mailgun, Zoho, SMTP do provedor de domínio). Configure também os registros **SPF/DKIM** do domínio no provedor de e-mail para evitar que as mensagens caiam no spam.
+Qualquer SMTP funciona (Resend, Brevo, Amazon SES, Mailgun, Zoho, SMTP do provedor de domínio). Na Vercel, veja o passo 5. Configure também os registros **SPF/DKIM** do domínio no provedor de e-mail para evitar que as mensagens caiam no spam.
 
 ### Login com Google
 
@@ -192,7 +233,7 @@ Qualquer SMTP funciona (Brevo, Amazon SES, Resend, Mailgun, Zoho, SMTP do proved
 
 - [ ] `https://seudominio.com.br/api/v1/status` retorna `"status":"ok"`.
 - [ ] `DATA_ENCRYPTION_KEY` guardada em local seguro, fora do servidor.
-- [ ] SMTP testado: “Esqueci minha senha” chega na caixa de entrada.
+- [ ] SMTP testado: o e-mail de confirmação de cadastro e o “Esqueci minha senha” chegam na caixa de entrada (não no spam).
 - [ ] Dados do controlador preenchidos (`LEGAL_NAME`, `LEGAL_DOCUMENT`, `PRIVACY_CONTACT_EMAIL`, `DPO_NAME`) — revise `/privacidade` e `/termos`.
 - [ ] Recomendado: revisão dos textos legais por um profissional de Direito.
 - [ ] Cópia dos backups para fora do servidor agendada.

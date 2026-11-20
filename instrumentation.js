@@ -18,9 +18,16 @@ export async function register() {
         "[startup] APP_URL não usa HTTPS — cookies seguros ficarão desativados.",
       );
     }
-    if (!process.env.SMTP_HOST) {
+    const productionDeploy =
+      !onVercel || process.env.VERCEL_ENV === "production";
+    if (productionDeploy && !process.env.SMTP_HOST) {
       console.warn(
-        "[startup] SMTP_HOST não configurado — e-mails de recuperação não serão enviados.",
+        "[startup] SMTP_HOST não configurado — e-mails de confirmação e de recuperação de senha não serão enviados.",
+      );
+    }
+    if (onVercel && productionDeploy && !process.env.CRON_SECRET) {
+      console.warn(
+        "[startup] CRON_SECRET não configurado — a rotina diária de retenção de dados (LGPD) não vai rodar.",
       );
     }
   }

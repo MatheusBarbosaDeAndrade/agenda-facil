@@ -23,7 +23,13 @@ export function getConnectionConfig({ unpooled = false } = {}) {
   const url =
     (unpooled && process.env.DATABASE_URL_UNPOOLED) || process.env.DATABASE_URL;
   if (url) {
-    return { connectionString: url, ssl: getSslConfig() };
+    const { connectionString, sslRequested } = stripSslParams(url);
+    let ssl = getSslConfig();
+    // URL com sslmode (ex.: Neon) usada fora de produção: mantém o SSL ligado.
+    if (!ssl && sslRequested && process.env.POSTGRES_SSL !== "disable") {
+      ssl = { rejectUnauthorized: true };
+    }
+    return { connectionString, ssl };
   }
   return {
     host: process.env.POSTGRES_HOST,
@@ -33,4 +39,26 @@ export function getConnectionConfig({ unpooled = false } = {}) {
     password: process.env.POSTGRES_PASSWORD,
     ssl: getSslConfig(),
   };
+}
+
+/**
+ * Remove sslmode/channel_binding da URL (o Neon os inclui) para que o SSL seja
+ * controlado só por getSslConfig(), sempre com verificação do certificado.
+ * Sem isso o pg emite um aviso e, na v9, "sslmode=require" deixaria de
+ * verificar o certificado.
+ */
+function stripSslParams(url) {
+  try {
+    const parsed = new URL(url);
+    const mode = parsed.searchParams.get("sslmode");
+    for (const key of ["sslmode", "channel_binding", "uselibpqcompat"]) {
+      parsed.searchParams.delete(key);
+    }
+    return {
+      connectionString: parsed.toString(),
+      sslRequested: Boolean(mode) && mode !== "disable",
+    };
+  } catch {
+    return { connectionString: url, sslRequested: false };
+  }
 }

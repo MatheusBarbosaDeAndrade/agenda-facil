@@ -2,6 +2,15 @@ import nodemailer from "nodemailer";
 
 let transporter = null;
 
+/**
+ * E-mails reais só saem do deploy de produção. Deploys de preview da Vercel
+ * nunca enviam (mesmo com SMTP configurado): a mensagem, com o link, vai para
+ * os logs da função, visíveis só para quem administra o projeto.
+ */
+function isVercelPreview() {
+  return process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "production";
+}
+
 function getTransporter() {
   if (!process.env.SMTP_HOST) return null;
   if (!transporter) {
@@ -44,6 +53,10 @@ export function buildEmailHtml({ title, paragraphs, button }) {
 }
 
 export async function sendEmail({ to, subject, text, html }) {
+  if (isVercelPreview()) {
+    console.log(`[email:preview] Para: ${to}\nAssunto: ${subject}\n${text}`);
+    return true;
+  }
   const transport = getTransporter();
   if (!transport) {
     if (process.env.NODE_ENV === "production") {
