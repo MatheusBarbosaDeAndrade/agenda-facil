@@ -22,7 +22,8 @@ export function getClientIp(req) {
  * deploys de preview), usa as URLs fornecidas automaticamente pela plataforma.
  */
 export function getAppUrl() {
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const appUrl = process.env.APP_URL?.trim();
+  if (appUrl) return appUrl.replace(/\/+$/, "");
   if (isVercel()) {
     const host =
       process.env.VERCEL_ENV === "production"
@@ -45,6 +46,25 @@ export function getAllowedOrigins() {
       if (process.env[key]) origins.add(`https://${process.env[key]}`);
     }
   }
+  return origins;
+}
+
+/**
+ * Origem do próprio host que recebeu a requisição (checagem padrão de mesma
+ * origem). Um site de terceiros envia o Origin dele, que não coincide com o
+ * Host do nosso servidor, então a proteção CSRF continua valendo — e o site
+ * funciona em qualquer domínio que aponte para ele (www, *.vercel.app etc.).
+ */
+export function getRequestOrigins(req) {
+  const origins = [];
+  const behindProxy = process.env.TRUST_PROXY === "true" || isVercel();
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "")
+    .split(",")[0]
+    .trim();
+  const host = (behindProxy && forwardedHost) || req.headers.host;
+  if (!host) return origins;
+  origins.push(`https://${host}`);
+  if (process.env.NODE_ENV !== "production") origins.push(`http://${host}`);
   return origins;
 }
 

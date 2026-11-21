@@ -7,7 +7,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "infra/errors.js";
-import { getAllowedOrigins } from "infra/request.js";
+import { getAllowedOrigins, getRequestOrigins } from "infra/request.js";
 import session from "models/session.js";
 import user from "models/user.js";
 
@@ -21,9 +21,7 @@ function assertSameOrigin(req) {
   const origin = req.headers.origin;
   if (origin) {
     const allowed = getAllowedOrigins();
-    if (process.env.NODE_ENV !== "production" && req.headers.host) {
-      allowed.add(`http://${req.headers.host}`);
-    }
+    for (const own of getRequestOrigins(req)) allowed.add(own);
     if (!allowed.has(origin)) {
       throw new ForbiddenError({
         message: "Origem da requisição não permitida.",
